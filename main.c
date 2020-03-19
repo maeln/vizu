@@ -30,6 +30,23 @@ float msin(float x)
     return (sinf(x) + 1.0) / 2.0;
 }
 
+void zeVoid(NVGcontext *ctx, float width, float height, float t, float skew)
+{
+    float middleHeight = height / 2.0;
+    float middleWidth = width / 2.0;
+    nvgMoveTo(ctx, 0.f, height / 2.0);
+    nvgBezierTo(ctx, middleWidth / 2.0 - skew,
+                (height / 2.0) * (msin(t) * 2.0),
+                middleWidth / 2.0 + skew,
+                (height / 2.0) * (msin(t) * 2.0),
+                middleWidth, middleHeight);
+    nvgBezierTo(ctx, middleWidth + (middleWidth / 2.0) + skew,
+                (height / 2.0) * (msin(t + (PI)) * 2.0),
+                middleWidth + (middleWidth / 2.0) - skew,
+                (height / 2.0) * (msin(t + (PI)) * 2.0),
+                width, middleHeight);
+}
+
 int main()
 {
     GLFWwindow *window;
@@ -98,29 +115,37 @@ int main()
         glClearColor(0, 0, 0, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-        float middleHeight = (float)fbHeight / 2.0;
-        float middleWidth = (float)fbWidth / 2.0;
+        float skew1 = 4.f + sinf(time * 0.2);
+        float skew2 = -4.f + sinf(time * 0.3);
+        float skew3 = 0.f + sinf(time * 0.5);
 
         nvgBeginFrame(vg, winWidth, winHeight, pxRatio);
 
         nvgBeginPath(vg);
-        nvgMoveTo(vg, 0, middleHeight);
-        nvgBezierTo(vg, middleWidth / 2.0,
-                    ((float)fbHeight / 2.0) * (msin(time) * 2.0),
-                    middleWidth / 2.0,
-                    ((float)fbHeight / 2.0) * (msin(time) * 2.0),
-                    middleWidth, middleHeight);
-        nvgBezierTo(vg, middleWidth + (middleWidth / 2.0),
-                    ((float)fbHeight / 2.0) * (msin(time + (PI)) * 2.0),
-                    middleWidth + (middleWidth / 2.0),
-                    ((float)fbHeight / 2.0) * (msin(time + (PI)) * 2.0),
-                    (float)fbWidth, middleHeight);
-        // nvgCircle(vg, 50.f * sinf(time) + 150.f, 50.f * cosf(time) + 150.f, 8.f);
-        // nvgFillColor(vg, nvgRGBA(123, 99, 34, 255));
+        zeVoid(vg, fbWidth, fbHeight, time, skew1);
+        nvgStrokeColor(vg, nvgRGBA(255, 0, 0, 150));
+        nvgStrokeWidth(vg, 3.0);
+        nvgStroke(vg);
+
+        nvgBeginPath(vg);
+        zeVoid(vg, fbWidth, fbHeight, time, skew2);
+        nvgStrokeColor(vg, nvgRGBA(0, 255, 0, 150));
+        nvgStrokeWidth(vg, 3.0);
+        nvgStroke(vg);
+
+        nvgBeginPath(vg);
+        zeVoid(vg, fbWidth, fbHeight, time, skew3);
+        nvgStrokeColor(vg, nvgRGBA(0, 0, 255, 150));
+        nvgStrokeWidth(vg, 3.0);
+        nvgStroke(vg);
+
+        /*
+        nvgBeginPath(vg);
+        zeVoid(vg, fbWidth, fbHeight, time, 0.f);
         nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 255));
         nvgStrokeWidth(vg, 3.0);
-        // nvgFill(vg);
         nvgStroke(vg);
+        */
 
         nvgEndFrame(vg);
 
