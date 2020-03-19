@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "nanovg.h": "c",
+        "nanovg_gl.h": "c"
+    }
+}
