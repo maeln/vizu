@@ -1,3 +1,5 @@
+#include <time.h>
+#include <stdlib.h>
 #include <stdio.h>
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
@@ -102,19 +104,61 @@ typedef struct
     float y;
 } birdy;
 
-void renderBirdy(NVGcontext *ctx, birdy *bird)
+typedef struct
 {
-    aBird(ctx, bird->x, bird->y, bird->heading, 0.5);
+    float sizex;
+    float sizey;
+    float ratiox;
+    float ratioy;
+} world;
+
+float randf()
+{
+    return (float)rand() / RAND_MAX;
 }
 
-void updateBirdy(NVGcontext *ctx, birdy *bird, double dt)
+birdy makeMeABirdy(world *world)
+{
+    birdy b = {
+        .heading = randf() * (PI * 2.0),
+        .speed = 100.0 * randf(),
+        .x = randf() * world->sizex,
+        .y = randf() * world->sizey,
+    };
+    return b;
+}
+
+void renderBirdy(NVGcontext *ctx, world *world, birdy *bird)
+{
+    aBird(ctx, bird->x * world->ratiox, bird->y * world->ratioy, bird->heading, 0.5);
+}
+
+void updateBirdy(NVGcontext *ctx, world *world, birdy *bird, double dt)
 {
     bird->x += cosf(bird->heading) * bird->speed * dt;
+    if (bird->x > world->sizex)
+    {
+        bird->x = 0;
+    }
+    else if (bird->x < 0)
+    {
+        bird->x = world->sizex;
+    }
+
     bird->y += sinf(bird->heading) * bird->speed * dt;
+    if (bird->y > world->sizey)
+    {
+        bird->y = 0;
+    }
+    else if (bird->y < 0)
+    {
+        bird->y = world->sizey;
+    }
 }
 
 int main()
 {
+    srand(time(NULL));
     GLFWwindow *window;
     NVGcontext *vg = NULL;
 
@@ -156,17 +200,18 @@ int main()
     double time = glfwGetTime();
     double dt = 0.0;
 
-    birdy b1 = {
-        .heading = 1.0,
-        .speed = 100.0,
-        .x = 300,
-        .y = 400};
+    world world = {
+        .sizex = 1000,
+        .sizey = 600,
+        .ratiox = 1.0,
+        .ratioy = 1.0,
+    };
 
-    birdy b2 = {
-        .heading = PI,
-        .speed = 100.0,
-        .x = 600,
-        .y = 400};
+    birdy birds[10];
+    for (int i = 0; i < 10; ++i)
+    {
+        birds[i] = makeMeABirdy(&world);
+    }
 
     while (!glfwWindowShouldClose(window))
     {
@@ -192,6 +237,9 @@ int main()
         // now use real dpi size
         fbWidth /= pxRatio;
         fbHeight /= pxRatio;
+
+        world.ratiox = world.sizex / fbWidth;
+        world.ratioy = world.sizey / fbHeight;
 
         float skew1 = 4.f + sinf(time * 0.2);
         float skew2 = -4.f + sinf(time * 0.3);
@@ -223,10 +271,13 @@ int main()
         nvgStrokeWidth(vg, 1.0);
         nvgStroke(vg);
 
-        updateBirdy(vg, &b1, dt);
-        updateBirdy(vg, &b2, dt);
-        renderBirdy(vg, &b1);
-        renderBirdy(vg, &b2);
+        for (int i = 0; i < 10; ++i)
+        {
+            updateBirdy(vg, &world, &birds[i], dt);
+            updateBirdy(vg, &world, &birds[i], dt);
+            renderBirdy(vg, &world, &birds[i]);
+            renderBirdy(vg, &world, &birds[i]);
+        }
 
         nvgEndFrame(vg);
 
