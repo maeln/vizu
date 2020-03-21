@@ -1,2 +1,2 @@
 #!/bin/bash
-gcc main.c -lglfw -L. -lnanovg -lGL -lGLU -lm -lGLEW
+gcc main.c -Ilibs/glfw/include -Llibs/glfw -lglfw -Llibs -lnanovg -framework OpenGL -lm 
