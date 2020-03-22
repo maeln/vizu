@@ -30,8 +30,9 @@ typedef struct
 typedef struct
 {
     vec2 viewport_size;
-    vec2 viewport; // in world size ?
-    vec2 position; // in world size too ?
+    vec2 viewport;
+    vec2 position;
+    float zoom;
 } camera;
 
 typedef struct
@@ -75,7 +76,7 @@ void updatePhyViewAndCamera(GLFWwindow *window, phy_view *view, camera *cam)
 void updateCameraPostion(camera *cam, vec2 delta)
 {
     cam->position = vec2_add(cam->position, delta);
-    cam->viewport = vec2_add(cam->position, cam->viewport_size);
+    cam->viewport = vec2_add(cam->position, vec2_mul(cam->viewport_size, cam->zoom));
 }
 
 bool isInView(camera *cam, vec2 p)
@@ -207,10 +208,8 @@ void aTri(NVGcontext *ctx, float s)
     nvgClosePath(ctx);
 }
 
-void aBird(NVGcontext *ctx, vec2 p, float heading, float skew)
+void aBird(NVGcontext *ctx, vec2 p, float heading, float skew, float bSize)
 {
-    float bSize = 15.0;
-
     nvgResetTransform(ctx);
     nvgTranslate(ctx, p.x + skew, p.y - skew);
     nvgRotate(ctx, PI / 2.0 + skew * 0.02 + heading);
@@ -247,7 +246,7 @@ void aBird(NVGcontext *ctx, vec2 p, float heading, float skew)
 void renderBirdy(NVGcontext *ctx, phy_view *phy, camera *cam, birdy *bird)
 {
     if (isInView(cam, bird->position))
-        aBird(ctx, worldToPhy(cam, phy, bird->position), bird->heading, 0.5);
+        aBird(ctx, worldToPhy(cam, phy, bird->position), bird->heading, 0.5, 15.0 * cam->zoom);
 }
 
 int main()
@@ -300,7 +299,8 @@ int main()
 
     camera cam = {
         .position = new_vec2(0.0, 0.0),
-        .viewport = new_vec2(1000.0, 600.0)};
+        .viewport = new_vec2(1000.0, 600.0),
+        .zoom = 1.0};
 
     phy_view view = {
         .viewport = new_vec2(1000.0, 600.0)};
@@ -326,6 +326,15 @@ int main()
         glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
         // Calculate pixel ration for hi-dpi devices.
         pxRatio = (float)fbWidth / (float)winWidth;
+
+        if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+        {
+            cam.zoom -= 1.0 * dt;
+        }
+        else if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        {
+            cam.zoom += 1.0 * dt;
+        }
 
         // Update and render
         glViewport(0, 0, fbWidth, fbHeight);

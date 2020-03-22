@@ -38,3 +38,8 @@ vec2 vec2_add(vec2 a, vec2 b)
 {
     return new_vec2(a.x + b.x, a.y + b.y);
 }
+
+vec2 vec2_mul(vec2 a, float b)
+{
+    return new_vec2(a.x * b, a.y * b);
+}
