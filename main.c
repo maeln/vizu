@@ -1,6 +1,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
 #define GL_SILENCE_DEPRECATION
@@ -10,8 +11,33 @@
 #include "nanovg/nanovg.h"
 #define NANOVG_GL3_IMPLEMENTATION
 #include "nanovg/nanovg_gl.h"
+#include "math_utils.h"
 
 #define PI 3.14159265
+
+typedef struct
+{
+    float heading;
+    float speed;
+    vec2 position;
+} birdy;
+
+typedef struct
+{
+    vec2 size;
+} world;
+
+typedef struct
+{
+    vec2 viewport_size;
+    vec2 viewport; // in world size ?
+    vec2 position; // in world size too ?
+} camera;
+
+typedef struct
+{
+    vec2 viewport;
+} phy_view;
 
 void errorcb(int error, const char *desc)
 {
@@ -26,10 +52,79 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
         glfwSetWindowShouldClose(window, GL_TRUE);
 }
 
-// sin that goes from 0..1
-float msin(float x)
+// NOTE: for now: phy -> world is 1:1 ratio
+// Should depend on a zoom
+
+void updatePhyViewAndCamera(GLFWwindow *window, phy_view *view, camera *cam)
 {
-    return (sinf(x) + 1.0) / 2.0;
+    int winWidth, winHeight;
+    int fbWidth, fbHeight;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    float pxRatio = (float)fbWidth / (float)winWidth;
+    fbWidth /= pxRatio;
+    fbHeight /= pxRatio;
+    view->viewport.x = fbWidth;
+    view->viewport.y = fbHeight;
+
+    float vratio = (float)fbWidth / (float)fbHeight;
+    cam->viewport_size.x = fbWidth;
+    cam->viewport_size.y = fbHeight;
+}
+
+void updateCameraPostion(camera *cam, vec2 delta)
+{
+    cam->position = vec2_add(cam->position, delta);
+    cam->viewport = vec2_add(cam->position, cam->viewport_size);
+}
+
+bool isInView(camera *cam, vec2 p)
+{
+    return p.x >= cam->position.x &&
+           p.x < (cam->position.x + cam->viewport.x) &&
+           p.y >= cam->position.y &&
+           p.y < (cam->position.y + cam->viewport.y);
+}
+
+vec2 worldToPhy(camera *cam, phy_view *phy, vec2 p)
+{
+    // assume that you are within the viewport
+    return new_vec2(
+        map(p.x, cam->position.x, cam->viewport.x, 0.0, phy->viewport.x),
+        map(p.y, cam->position.y, cam->viewport.y, 0.0, phy->viewport.y));
+}
+
+birdy makeMeABirdy(world *world)
+{
+    birdy b = {
+        .heading = randf() * (PI * 2.0),
+        .speed = 100.0 * randf(),
+        .position = new_vec2(randf() * world->size.x, randf() * world->size.y),
+    };
+    return b;
+}
+
+void updateBirdy(NVGcontext *ctx, world *world, birdy *bird, double dt)
+{
+    bird->position.x += cosf(bird->heading) * bird->speed * dt;
+    if (bird->position.x > world->size.x)
+    {
+        bird->position.x = 0;
+    }
+    else if (bird->position.x < 0)
+    {
+        bird->position.x = world->size.x;
+    }
+
+    bird->position.y += sinf(bird->heading) * bird->speed * dt;
+    if (bird->position.y > world->size.y)
+    {
+        bird->position.y = 0;
+    }
+    else if (bird->position.y < 0)
+    {
+        bird->position.y = world->size.y;
+    }
 }
 
 void zeVoid(NVGcontext *ctx, float width, float height, float t, float skew)
@@ -49,6 +144,59 @@ void zeVoid(NVGcontext *ctx, float width, float height, float t, float skew)
                 width, middleHeight);
 }
 
+void worldEdges(NVGcontext *ctx, world *world, camera *cam, phy_view *view)
+{
+    nvgResetTransform(ctx);
+    // top
+    if (cam->position.y <= 0)
+    {
+        nvgBeginPath(ctx);
+        nvgMoveTo(ctx, -cam->position.x, -cam->position.y);
+        nvgLineTo(ctx, world->size.x - cam->position.x, -cam->position.y);
+        nvgClosePath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 255));
+        nvgStrokeWidth(ctx, 2.0);
+        nvgStroke(ctx);
+    }
+    // left
+    if (cam->position.x <= 0)
+    {
+        nvgBeginPath(ctx);
+        nvgMoveTo(ctx, -cam->position.x, -cam->position.y);
+        nvgLineTo(ctx, -cam->position.x, world->size.y - cam->position.y);
+        nvgClosePath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 255));
+        nvgStrokeWidth(ctx, 2.0);
+        nvgStroke(ctx);
+    }
+    // bottom
+    if (cam->viewport.y >= world->size.y)
+    {
+        nvgBeginPath(ctx);
+        nvgMoveTo(ctx, -cam->position.x,
+                  view->viewport.y - (cam->viewport.y - world->size.y));
+        nvgLineTo(ctx, world->size.x - cam->position.x,
+                  view->viewport.y - (cam->viewport.y - world->size.y));
+        nvgClosePath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 255));
+        nvgStrokeWidth(ctx, 2.0);
+        nvgStroke(ctx);
+    }
+    // right
+    if (cam->viewport.x >= world->size.x)
+    {
+        nvgBeginPath(ctx);
+        nvgMoveTo(ctx, view->viewport.x - (cam->viewport.x - world->size.x),
+                  -cam->position.y);
+        nvgLineTo(ctx, view->viewport.x - (cam->viewport.x - world->size.x),
+                  world->size.y - cam->position.y);
+        nvgClosePath(ctx);
+        nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 255));
+        nvgStrokeWidth(ctx, 2.0);
+        nvgStroke(ctx);
+    }
+}
+
 void aTri(NVGcontext *ctx, float s)
 {
     nvgBeginPath(ctx);
@@ -59,12 +207,12 @@ void aTri(NVGcontext *ctx, float s)
     nvgClosePath(ctx);
 }
 
-void aBird(NVGcontext *ctx, float x, float y, float heading, float skew)
+void aBird(NVGcontext *ctx, vec2 p, float heading, float skew)
 {
     float bSize = 15.0;
 
     nvgResetTransform(ctx);
-    nvgTranslate(ctx, x + skew, y - skew);
+    nvgTranslate(ctx, p.x + skew, p.y - skew);
     nvgRotate(ctx, PI / 2.0 + skew * 0.02 + heading);
     aTri(ctx, bSize);
     nvgStrokeColor(ctx, nvgRGBA(255, 0, 0, 150));
@@ -72,7 +220,7 @@ void aBird(NVGcontext *ctx, float x, float y, float heading, float skew)
     nvgStroke(ctx);
 
     nvgResetTransform(ctx);
-    nvgTranslate(ctx, x - skew, y + skew);
+    nvgTranslate(ctx, p.x - skew, p.y + skew);
     nvgRotate(ctx, PI / 2.0 + skew * -0.02 + heading);
     aTri(ctx, bSize);
     nvgStrokeColor(ctx, nvgRGBA(0, 255, 0, 150));
@@ -80,7 +228,7 @@ void aBird(NVGcontext *ctx, float x, float y, float heading, float skew)
     nvgStroke(ctx);
 
     nvgResetTransform(ctx);
-    nvgTranslate(ctx, x + skew, y + skew);
+    nvgTranslate(ctx, p.x + skew, p.y + skew);
     nvgRotate(ctx, PI / 2.0 + skew * 0.05 + heading);
     aTri(ctx, bSize);
     nvgStrokeColor(ctx, nvgRGBA(0, 0, 255, 150));
@@ -88,7 +236,7 @@ void aBird(NVGcontext *ctx, float x, float y, float heading, float skew)
     nvgStroke(ctx);
 
     nvgResetTransform(ctx);
-    nvgTranslate(ctx, x, y);
+    nvgTranslate(ctx, p.x, p.y);
     nvgRotate(ctx, PI / 2.0 + heading);
     aTri(ctx, bSize);
     nvgStrokeColor(ctx, nvgRGBA(255, 255, 255, 170));
@@ -96,64 +244,10 @@ void aBird(NVGcontext *ctx, float x, float y, float heading, float skew)
     nvgStroke(ctx);
 }
 
-typedef struct
+void renderBirdy(NVGcontext *ctx, phy_view *phy, camera *cam, birdy *bird)
 {
-    float heading;
-    float speed;
-    float x;
-    float y;
-} birdy;
-
-typedef struct
-{
-    float sizex;
-    float sizey;
-    float ratiox;
-    float ratioy;
-} world;
-
-float randf()
-{
-    return (float)rand() / RAND_MAX;
-}
-
-birdy makeMeABirdy(world *world)
-{
-    birdy b = {
-        .heading = randf() * (PI * 2.0),
-        .speed = 100.0 * randf(),
-        .x = randf() * world->sizex,
-        .y = randf() * world->sizey,
-    };
-    return b;
-}
-
-void renderBirdy(NVGcontext *ctx, world *world, birdy *bird)
-{
-    aBird(ctx, bird->x * world->ratiox, bird->y * world->ratioy, bird->heading, 0.5);
-}
-
-void updateBirdy(NVGcontext *ctx, world *world, birdy *bird, double dt)
-{
-    bird->x += cosf(bird->heading) * bird->speed * dt;
-    if (bird->x > world->sizex)
-    {
-        bird->x = 0;
-    }
-    else if (bird->x < 0)
-    {
-        bird->x = world->sizex;
-    }
-
-    bird->y += sinf(bird->heading) * bird->speed * dt;
-    if (bird->y > world->sizey)
-    {
-        bird->y = 0;
-    }
-    else if (bird->y < 0)
-    {
-        bird->y = world->sizey;
-    }
+    if (isInView(cam, bird->position))
+        aBird(ctx, worldToPhy(cam, phy, bird->position), bird->heading, 0.5);
 }
 
 int main()
@@ -185,8 +279,8 @@ int main()
     }
 
     glfwSetKeyCallback(window, key);
-
     glfwMakeContextCurrent(window);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
     if (vg == NULL)
@@ -201,11 +295,15 @@ int main()
     double dt = 0.0;
 
     world world = {
-        .sizex = 1000,
-        .sizey = 600,
-        .ratiox = 1.0,
-        .ratioy = 1.0,
+        .size = new_vec2(1024.0, 1024.0),
     };
+
+    camera cam = {
+        .position = new_vec2(0.0, 0.0),
+        .viewport = new_vec2(1000.0, 600.0)};
+
+    phy_view view = {
+        .viewport = new_vec2(1000.0, 600.0)};
 
     birdy birds[10];
     for (int i = 0; i < 10; ++i)
@@ -213,17 +311,17 @@ int main()
         birds[i] = makeMeABirdy(&world);
     }
 
+    double mx = -1.0;
+    double my = -1.0;
+    double pmx, pmy;
+    int winWidth, winHeight;
+    int fbWidth, fbHeight;
+    float pxRatio;
     while (!glfwWindowShouldClose(window))
     {
-        double mx, my;
-        int winWidth, winHeight;
-        int fbWidth, fbHeight;
-        float pxRatio;
-
         dt = glfwGetTime() - time;
         time = glfwGetTime();
 
-        glfwGetCursorPos(window, &mx, &my);
         glfwGetWindowSize(window, &winWidth, &winHeight);
         glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
         // Calculate pixel ration for hi-dpi devices.
@@ -234,50 +332,35 @@ int main()
         glClearColor(0, 0, 0, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
+        nvgBeginFrame(vg, winWidth, winHeight, pxRatio);
+
+        updatePhyViewAndCamera(window, &view, &cam);
+
+        pmx = mx;
+        pmy = my;
+        glfwGetCursorPos(window, &mx, &my);
+        vec2 dm = new_vec2(mx - pmx, my - pmy);
+        if (pmx >= 0 && pmy >= 0)
+            updateCameraPostion(&cam, dm);
+
         // now use real dpi size
         fbWidth /= pxRatio;
         fbHeight /= pxRatio;
 
-        world.ratiox = world.sizex / fbWidth;
-        world.ratioy = world.sizey / fbHeight;
-
         float skew1 = 4.f + sinf(time * 0.2);
         float skew2 = -4.f + sinf(time * 0.3);
         float skew3 = 0.f + sinf(time * 0.5);
-
-        nvgBeginFrame(vg, winWidth, winHeight, pxRatio);
-
-        nvgBeginPath(vg);
-        zeVoid(vg, fbWidth, fbHeight, time, skew1);
-        nvgStrokeColor(vg, nvgRGBA(255, 0, 0, 150));
-        nvgStrokeWidth(vg, 4.0);
-        nvgStroke(vg);
-
-        nvgBeginPath(vg);
-        zeVoid(vg, fbWidth, fbHeight, time, skew2);
-        nvgStrokeColor(vg, nvgRGBA(0, 255, 0, 150));
-        nvgStrokeWidth(vg, 4.0);
-        nvgStroke(vg);
-
-        nvgBeginPath(vg);
-        zeVoid(vg, fbWidth, fbHeight, time, skew3);
-        nvgStrokeColor(vg, nvgRGBA(0, 0, 255, 150));
-        nvgStrokeWidth(vg, 4.0);
-        nvgStroke(vg);
-
-        nvgBeginPath(vg);
-        zeVoid(vg, fbWidth, fbHeight, time, 0.0);
-        nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 170));
-        nvgStrokeWidth(vg, 1.0);
-        nvgStroke(vg);
-
         for (int i = 0; i < 10; ++i)
         {
             updateBirdy(vg, &world, &birds[i], dt);
             updateBirdy(vg, &world, &birds[i], dt);
-            renderBirdy(vg, &world, &birds[i]);
-            renderBirdy(vg, &world, &birds[i]);
+            renderBirdy(vg, &view, &cam, &birds[i]);
+            renderBirdy(vg, &view, &cam, &birds[i]);
         }
+
+        worldEdges(vg, &world, &cam, &view);
+
+        // printf("cam, view: (%f, %f), pos: (%f, %f)\n", cam.viewport.x, cam.viewport.y, cam.position.x, cam.position.y);
 
         nvgEndFrame(vg);
 
